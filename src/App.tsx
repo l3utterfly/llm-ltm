@@ -1,17 +1,10 @@
 import { useMemo } from "react";
 import { LaylaSDK } from "@layla-network/sdk";
-import { LORE, type DemoLore } from "./demo/data";
 import { CharacterPicker } from "./features/memoryIngest/screens/CharacterPicker";
 import { CharacterSettings } from "./features/memoryIngest/screens/CharacterSettings";
 import { Ingesting } from "./features/memoryIngest/screens/Ingesting";
 import { useCharacterCatalog } from "./features/memoryIngest/useCharacterCatalog";
 import { useIngestFlow } from "./features/memoryIngest/useIngestFlow";
-
-const EMPTY_LORE: DemoLore = {
-  entities: [],
-  memories: [],
-  relations: [],
-};
 
 export default function App() {
   const layla = useMemo(() => new LaylaSDK(), []);
@@ -19,7 +12,6 @@ export default function App() {
   const flow = useIngestFlow();
   const selected = flow.selectedCharacter;
   const portrait = selected ? (catalog.portraits[selected.id] ?? "") : "";
-  const lore = selected ? (LORE[selected.id] ?? EMPTY_LORE) : EMPTY_LORE;
 
   return (
     <div className="app">
@@ -52,7 +44,6 @@ export default function App() {
           character={selected}
           config={flow.config}
           layla={layla}
-          lore={lore}
           onDone={flow.finishIngesting}
           onExit={flow.backToSettings}
           portrait={portrait}

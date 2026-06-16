@@ -5,10 +5,9 @@ import {
   type LaylaMemory,
   type LaylaSDK,
 } from "@layla-network/sdk";
-import type { DemoEntity, DemoLore } from "../../demo/data";
+import type { DemoEntity, DemoRelation } from "../../demo/data";
 import { KIND_ICON } from "./config";
 import {
-  buildGraphDisplay,
   buildTranscriptWindows,
   generateKnowledgeGraph,
   getLatestMemoryTimestamp,
@@ -32,14 +31,12 @@ interface UseIngestAnimationArgs {
   character: LaylaCharacter;
   config: IngestConfig;
   layla: LaylaSDK;
-  lore: DemoLore;
 }
 
 export function useIngestAnimation({
   character,
   config,
   layla,
-  lore,
 }: UseIngestAnimationArgs) {
   const stageRef = useRef<HTMLDivElement>(null);
   const dimsRef = useRef({ w: 320, h: 360 });
@@ -258,7 +255,79 @@ export function useIngestAnimation({
 
         const memoryDrafts: Array<LaylaMemory & { graphTriples: GraphTriple[] }> =
           [];
-        const allTriples: GraphTriple[] = [];
+        const entitiesById = new Map<string, DemoEntity>();
+        const relationsByKey = new Map<string, DemoRelation>();
+        const placedById = new Map<string, PlacedNode>();
+        const graphProgress = (graphIndex: number, withinGraph: number) =>
+          (graphIndex + withinGraph) / Math.max(1, summaries.length);
+
+        const revealGraph = async (
+          graphEntities: DemoEntity[],
+          graphRelations: DemoRelation[],
+          graphIndex: number,
+        ) => {
+          const newPlaced: PlacedNode[] = [];
+
+          for (const entity of graphEntities) {
+            if (entitiesById.has(entity.id)) continue;
+
+            entitiesById.set(entity.id, entity);
+
+            const placed = placeNode(entity, entitiesById.size - 1);
+            placedById.set(entity.id, placed);
+            newPlaced.push(placed);
+          }
+
+          for (const relation of graphRelations) {
+            const key = `${relation.from}|${relation.label}|${relation.to}`;
+            if (!relationsByKey.has(key)) {
+              relationsByKey.set(key, relation);
+            }
+          }
+
+          const updateEdges = () => {
+            setEdges(
+              [...relationsByKey.values()]
+                .filter(
+                  (relation) =>
+                    placedById.has(relation.from) && placedById.has(relation.to),
+                )
+                .map((relation) => ({
+                  from: placedById.get(relation.from)!,
+                  to: placedById.get(relation.to)!,
+                })),
+            );
+          };
+
+          if (newPlaced.length === 0) {
+            updateEdges();
+            setWeightedProgress(2, graphProgress(graphIndex, 0.86));
+            return;
+          }
+
+          for (let i = 0; i < newPlaced.length; i += 1) {
+            const node = newPlaced[i];
+
+            setNodes((current) => [...current, node]);
+            spawnParticles(node);
+            pushRow({
+              kind: "entity",
+              tick: "ENTITY",
+              text: `${KIND_ICON[node.kind]} ${node.kind}`,
+              bold: node.label,
+            });
+
+            updateEdges();
+            setWeightedProgress(
+              2,
+              graphProgress(
+                graphIndex,
+                0.62 + ((i + 1) / newPlaced.length) * 0.24,
+              ),
+            );
+            await sleep(520, signal);
+          }
+        };
 
         for (let i = 0; i < summaries.length; i += 1) {
           pushRow({
@@ -275,7 +344,6 @@ export function useIngestAnimation({
             signal,
           );
 
-          allTriples.push(...graph.triples);
           memoryDrafts.push(
             makeMemoryDraft(
               character.id,
@@ -285,65 +353,32 @@ export function useIngestAnimation({
               graph.triples,
             ),
           );
-          setWeightedProgress(2, (i + 1) / Math.max(1, summaries.length) * 0.62);
-        }
-
-        const displayGraph = buildGraphDisplay(allTriples);
-        const visualEntities =
-          displayGraph.entities.length > 0 ? displayGraph.entities : lore.entities;
-        const visualRelations =
-          displayGraph.relations.length > 0 ? displayGraph.relations : lore.relations;
-        const placed = visualEntities.map((entity, index) =>
-          placeNode(entity, index),
-        );
-        const nodesById = new Map(placed.map((node) => [node.id, node]));
-
-        if (placed.length === 0) {
-          setWeightedProgress(2, 0.8);
-        }
-
-        for (let i = 0; i < placed.length; i += 1) {
-          const node = placed[i];
-
-          setNodes((current) => [...current, node]);
-          spawnParticles(node);
-          pushRow({
-            kind: "entity",
-            tick: "ENTITY",
-            text: `${KIND_ICON[node.kind]} ${node.kind}`,
-            bold: node.label,
-          });
-
-          setEdges(() => {
-            const present = new Set(placed.slice(0, i + 1).map((n) => n.id));
-
-            return visualRelations
-              .filter(
-                (relation) =>
-                  present.has(relation.from) && present.has(relation.to),
-              )
-              .map((relation) => ({
-                from: nodesById.get(relation.from)!,
-                to: nodesById.get(relation.to)!,
-              }));
-          });
-
-          setWeightedProgress(2, 0.62 + ((i + 1) / placed.length) * 0.24);
-          await sleep(640, signal);
+          setWeightedProgress(
+            2,
+            graphProgress(i, 0.62),
+          );
+          await revealGraph(graph.display.entities, graph.display.relations, i);
         }
 
         const savedMemories =
           memoryDrafts.length > 0
             ? await layla.memories.createOrUpdate(
-                memoryDrafts.map(({ graphTriples: _graphTriples, ...memory }) => memory),
+                memoryDrafts.map((memory) => ({
+                  id: memory.id,
+                  character_id: memory.character_id,
+                  rawText: memory.rawText,
+                  timestamp: memory.timestamp,
+                  summary: memory.summary,
+                  knowledgeGraphJSON: memory.knowledgeGraphJSON,
+                })),
                 { signal },
               )
             : [];
 
         setStats({
-          entities: displayGraph.entities.length,
+          entities: entitiesById.size,
           memories: savedMemories.length,
-          relations: displayGraph.relations.length,
+          relations: relationsByKey.size,
         });
         setWeightedProgress(2, 1);
         setPhase(3);
@@ -377,7 +412,6 @@ export function useIngestAnimation({
     character,
     config,
     layla,
-    lore,
     placeNode,
     pushRow,
     setWeightedProgress,

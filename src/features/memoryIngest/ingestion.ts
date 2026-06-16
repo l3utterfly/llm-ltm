@@ -198,7 +198,7 @@ export async function generateKnowledgeGraph(
   config: IngestConfig,
   summary: string,
   signal: AbortSignal,
-): Promise<{ json: string; triples: GraphTriple[] }> {
+): Promise<{ display: GraphDisplayData; json: string; triples: GraphTriple[] }> {
   const completion = await layla.chat.completions.create({
     messages: [
       { role: "system", content: config.graphSystem },
@@ -212,8 +212,9 @@ export async function generateKnowledgeGraph(
   const content = completion.choices[0]?.message.content.trim() ?? "";
   const json = extractJsonString(content);
   const triples = parseGraphTriples(json);
+  const display = parseGraphDisplay(json, triples);
 
-  return { json, triples };
+  return { display, json, triples };
 }
 
 export function makeMemoryDraft(
@@ -275,6 +276,110 @@ export function buildGraphDisplay(triples: GraphTriple[]): GraphDisplayData {
     entities: [...entitiesById.values()].slice(0, 28),
     relations: dedupeRelations(relations).slice(0, 40),
   };
+}
+
+function parseGraphDisplay(
+  json: string,
+  triples: GraphTriple[],
+): GraphDisplayData {
+  try {
+    const parsed: unknown = JSON.parse(json);
+    const fallback = buildGraphDisplay(triples);
+    const parsedEntities = parseGraphEntities(parsed);
+    const parsedRelations = parseGraphRelations(parsed, triples, parsedEntities);
+    const relations =
+      parsedRelations.length > 0 ? parsedRelations : fallback.relations;
+    const entities = completeRelationEntities(
+      parsedEntities.length > 0 ? parsedEntities : fallback.entities,
+      relations,
+    );
+
+    return {
+      entities: entities.slice(0, 28),
+      relations: dedupeRelations(relations).slice(0, 40),
+    };
+  } catch {
+    return buildGraphDisplay(triples);
+  }
+}
+
+function parseGraphEntities(parsed: unknown): DemoEntity[] {
+  if (!isObject(parsed)) return [];
+
+  const nodeSource = Array.isArray(parsed.nodes)
+    ? parsed.nodes
+    : Array.isArray(parsed.entities)
+      ? parsed.entities
+      : [];
+
+  return nodeSource.flatMap((item) => {
+    if (typeof item === "string") {
+      const label = cleanLabel(item);
+      return label ? [{ id: entityId(label), label, kind: inferKind(label) }] : [];
+    }
+    if (!isObject(item)) return [];
+
+    const label =
+      stringField(item, "label") ||
+      stringField(item, "name") ||
+      stringField(item, "id");
+    if (!label) return [];
+
+    const id = entityId(stringField(item, "id") || label);
+    const kind = graphNodeKind(stringField(item, "kind") || stringField(item, "type"), label);
+
+    return [{ id, label: cleanLabel(label), kind }];
+  });
+}
+
+function parseGraphRelations(
+  parsed: unknown,
+  triples: GraphTriple[],
+  entities: DemoEntity[],
+): DemoRelation[] {
+  const entitiesByRawId = new Map<string, string>();
+
+  for (const entity of entities) {
+    entitiesByRawId.set(entity.id, entity.id);
+    entitiesByRawId.set(entity.label.toLowerCase(), entity.id);
+  }
+
+  if (!isObject(parsed)) return buildGraphDisplay(triples).relations;
+
+  const relationSource = Array.isArray(parsed.edges)
+    ? parsed.edges
+    : Array.isArray(parsed.relations)
+      ? parsed.relations
+      : [];
+
+  const relations = relationSource.flatMap((item) => {
+    if (!isObject(item)) return [];
+
+    const from =
+      stringField(item, "from") ||
+      stringField(item, "source") ||
+      stringField(item, "subject");
+    const to =
+      stringField(item, "to") ||
+      stringField(item, "target") ||
+      stringField(item, "object");
+    const label =
+      stringField(item, "label") ||
+      stringField(item, "relationship") ||
+      stringField(item, "relation");
+
+    if (!from || !to || !label) return [];
+
+    return [
+      {
+        from: normalizeEntityRef(from, entitiesByRawId),
+        to: normalizeEntityRef(to, entitiesByRawId),
+        label: cleanLabel(label),
+      },
+    ];
+  });
+
+  return relations.length > 0 ? relations : buildGraphDisplay(triples).relations;
 }
 
 function formatWindow(
@@ -388,6 +493,65 @@ function inferKind(label: string): GraphNodeKind {
   }
 
   return "object";
+}
+
+function graphNodeKind(value: string, label: string): GraphNodeKind {
+  const normalized = value.toLowerCase();
+
+  if (
+    normalized === "person" ||
+    normalized === "place" ||
+    normalized === "event" ||
+    normalized === "trait" ||
+    normalized === "object"
+  ) {
+    return normalized;
+  }
+
+  return inferKind(label);
+}
+
+function normalizeEntityRef(
+  value: string,
+  entitiesByRawId: Map<string, string>,
+): string {
+  const cleaned = cleanLabel(value);
+
+  return (
+    entitiesByRawId.get(cleaned) ??
+    entitiesByRawId.get(cleaned.toLowerCase()) ??
+    entityId(cleaned)
+  );
+}
+
+function completeRelationEntities(
+  entities: DemoEntity[],
+  relations: DemoRelation[],
+): DemoEntity[] {
+  const entitiesById = new Map(entities.map((entity) => [entity.id, entity]));
+
+  for (const relation of relations) {
+    for (const id of [relation.from, relation.to]) {
+      if (entitiesById.has(id)) continue;
+
+      const label = labelFromEntityId(id);
+      entitiesById.set(id, {
+        id,
+        label,
+        kind: inferKind(label),
+      });
+    }
+  }
+
+  return [...entitiesById.values()];
+}
+
+function labelFromEntityId(id: string): string {
+  return id
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function dedupeRelations(relations: DemoRelation[]): DemoRelation[] {

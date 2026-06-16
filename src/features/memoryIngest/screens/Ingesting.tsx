@@ -1,6 +1,5 @@
 import type { CSSProperties } from "react";
 import type { LaylaCharacter, LaylaSDK } from "@layla-network/sdk";
-import type { DemoLore } from "../../../demo/data";
 import { INGEST_PHASES, kindColorVar } from "../config";
 import { useIngestAnimation } from "../useIngestAnimation";
 import type { IngestConfig } from "../types";
@@ -10,7 +9,6 @@ interface IngestingProps {
   character: LaylaCharacter;
   config: IngestConfig;
   layla: LaylaSDK;
-  lore: DemoLore;
   onDone: () => void;
   onExit: () => void;
   portrait: string;
@@ -20,7 +18,6 @@ export function Ingesting({
   character,
   config,
   layla,
-  lore,
   onDone,
   onExit,
   portrait,
@@ -37,7 +34,7 @@ export function Ingesting({
     rows,
     stageRef,
     stats,
-  } = useIngestAnimation({ character, config, layla, lore });
+  } = useIngestAnimation({ character, config, layla });
   const pct = Math.round(overall * 100);
   const radius = 64;
   const circumference = 2 * Math.PI * radius;
