@@ -82,11 +82,19 @@ body {
 .hdr .icon-btn {
   flex: 0 0 auto;
 }
+.grow {
+  flex: 1;
+}
 .hdr h1 {
   font-size: 20px;
   font-weight: 700;
   margin: 0;
   letter-spacing: -0.2px;
+}
+.empty-state {
+  padding: 40px;
+  text-align: center;
+  color: var(--muted);
 }
 .hdr p {
   margin: 2px 0 0;
@@ -686,6 +694,10 @@ body {
   color: var(--text-2);
   max-width: 360px;
   line-height: 1.5;
+}
+.summary-actions {
+  display: flex;
+  gap: 10px;
 }
 .stats {
   display: flex;

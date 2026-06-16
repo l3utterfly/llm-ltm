@@ -258,7 +258,10 @@ export const DEMO_CHARACTERS: LaylaCharacter[] = SEEDS.map((seed) => {
     personality: seed.personality,
     tags: seed.tags,
     creator: 'Memory Ingest Demo',
-    extensions: {},
+    extensions: {
+      image: makePortrait(seed.name, seed.hue),
+      tagline: seed.tagline,
+    },
   });
   LORE[character.id] = seed.lore;
   return character;
