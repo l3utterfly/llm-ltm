@@ -308,12 +308,65 @@ function buildHistory(): Record<string, LaylaChatHistoryEntry[]> {
 
 const DEMO_HISTORY = buildHistory();
 
+const DEMO_GRAPH_TRIPLES = [
+  {
+    subject: 'Mira Vale',
+    relationship: 'grew up on',
+    object: 'Halcyon Tier',
+  },
+  {
+    subject: 'Mira Vale',
+    relationship: 'lost',
+    object: 'The Junebug',
+  },
+  {
+    subject: 'Mira Vale',
+    relationship: 'confides in',
+    object: 'Pell',
+  },
+  {
+    subject: 'Bram Holloway',
+    relationship: 'kept',
+    object: 'Saltmarsh Light',
+  },
+  {
+    subject: 'Bram Holloway',
+    relationship: 'misses',
+    object: 'Edith',
+  },
+  {
+    subject: 'Sol Okonkwo',
+    relationship: 'runs',
+    object: 'The midnight cart',
+  },
+  {
+    subject: 'Sol Okonkwo',
+    relationship: 'owes favor to',
+    object: 'Night Market landlord',
+  },
+  {
+    subject: 'Ada Quill',
+    relationship: 'catalogs',
+    object: 'abandoned memories',
+  },
+  {
+    subject: 'Kestrel',
+    relationship: 'rides',
+    object: 'Vesper',
+  },
+  {
+    subject: 'Doctor Wren',
+    relationship: 'tends',
+    object: 'The greenhouse',
+  },
+] as const;
+
 /** Canned LLM replies so summarisation streams real-looking prose from the SDK. */
 function respond(messages: LaylaChatMessage[]): string {
   const last = messages[messages.length - 1]?.content ?? '';
   // The page tags graph-construction calls so the mock can answer in JSON.
   if (/\[\[task:graph\]\]/.test(last)) {
-    return JSON.stringify({ entities: [], relations: [] });
+    return JSON.stringify(DEMO_GRAPH_TRIPLES);
   }
   const transcript = last.replace(/\[\[.*?\]\]/g, '').trim();
   return (
@@ -327,6 +380,7 @@ export function installDemoHost() {
   return installLaylaMock({
     characters: DEMO_CHARACTERS,
     chatHistory: DEMO_HISTORY,
+    memories: [],
     respond,
     latencyMs: 220,
     tokenDelayMs: 14,

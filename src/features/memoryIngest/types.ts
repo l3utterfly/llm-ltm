@@ -27,6 +27,12 @@ export interface GraphEdge {
   to: PlacedNode;
 }
 
+export interface IngestStats {
+  entities: number;
+  memories: number;
+  relations: number;
+}
+
 export interface Particle {
   id: number;
   x0: number;

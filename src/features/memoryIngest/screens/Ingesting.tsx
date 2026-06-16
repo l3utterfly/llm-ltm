@@ -36,6 +36,7 @@ export function Ingesting({
     phaseProg,
     rows,
     stageRef,
+    stats,
   } = useIngestAnimation({ character, config, layla, lore });
   const pct = Math.round(overall * 100);
   const radius = 64;
@@ -197,12 +198,12 @@ export function Ingesting({
         </div>
       ) : (
         <Summary
-          entities={lore.entities.length}
-          memories={lore.memories.length}
+          entities={stats.entities}
+          memories={stats.memories}
           name={character.data.data.name}
           onAgain={onExit}
           onDone={onDone}
-          relations={lore.relations.length}
+          relations={stats.relations}
         />
       )}
     </div>

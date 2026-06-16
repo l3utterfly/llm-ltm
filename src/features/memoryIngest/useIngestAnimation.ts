@@ -2,14 +2,26 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   LaylaAbortError,
   type LaylaCharacter,
+  type LaylaMemory,
   type LaylaSDK,
 } from "@layla-network/sdk";
 import type { DemoEntity, DemoLore } from "../../demo/data";
 import { KIND_ICON } from "./config";
+import {
+  buildGraphDisplay,
+  buildTranscriptWindows,
+  generateKnowledgeGraph,
+  getLatestMemoryTimestamp,
+  loadNewTranscripts,
+  makeMemoryDraft,
+  summarizeWindow,
+  type GraphTriple,
+} from "./ingestion";
 import { sleep } from "./layla";
 import type {
   GraphEdge,
   IngestConfig,
+  IngestStats,
   LogRow,
   Particle,
   PhaseIdx,
@@ -43,6 +55,11 @@ export function useIngestAnimation({
   const [nodes, setNodes] = useState<PlacedNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [particles, setParticles] = useState<Particle[]>([]);
+  const [stats, setStats] = useState<IngestStats>({
+    entities: 0,
+    memories: 0,
+    relations: 0,
+  });
   const [finished, setFinished] = useState(false);
 
   useEffect(() => {
@@ -153,110 +170,136 @@ export function useIngestAnimation({
           text: `Opening memory store for ${character.data.data.name}`,
         });
 
-        const { sessions } = await layla.chat.getChatSessions(
+        const cutoffTimestamp = await getLatestMemoryTimestamp(
+          layla,
           character.id,
-          0,
-          20,
-          { signal },
+          signal,
         );
-        const transcripts: string[] = [];
 
-        if (sessions.length === 0) {
+        pushRow({
+          kind: "system",
+          tick: "MEMORY",
+          text: cutoffTimestamp
+            ? "Latest saved memory cutoff found"
+            : "No saved memories found; scanning all chats",
+          bold: cutoffTimestamp ? new Date(cutoffTimestamp).toLocaleString() : "",
+        });
+
+        const transcripts = await loadNewTranscripts({
+          characterId: character.id,
+          cutoffTimestamp,
+          layla,
+          onHistory: (index, messageCount) => {
+            pushRow({
+              kind: "system",
+              tick: "READ",
+              text: "Loaded session",
+              bold: `#${index} · ${messageCount} new messages`,
+            });
+          },
+          onProgress: (complete, total) => {
+            setWeightedProgress(0, total === 0 ? 1 : complete / total);
+          },
+          signal,
+        });
+
+        const windows = buildTranscriptWindows(transcripts, character);
+
+        if (windows.length === 0) {
           pushRow({
             kind: "system",
-            tick: "READ",
-            text: "No previous sessions found",
+            tick: "SKIP",
+            text: "No new chat messages found after the latest memory",
           });
           setWeightedProgress(0, 1);
+          setWeightedProgress(1, 1);
+          setWeightedProgress(2, 1);
+          setPhase(3);
+          setOverall(1);
+          setFinished(true);
+          return;
         }
 
-        await sleep(280, signal);
-
-        for (let i = 0; i < sessions.length; i += 1) {
-          const history = await layla.chat.getChatHistory(
-            sessions[i].session_id,
-            0,
-            50,
-            { signal },
-          );
-          const text = history
-            .slice()
-            .reverse()
-            .map((entry) => `${entry.name}: ${entry.content}`)
-            .join("\n");
-
-          transcripts.push(text);
-          pushRow({
-            kind: "system",
-            tick: "READ",
-            text: "Loaded session",
-            bold: `#${i + 1} · ${history.length} messages`,
-          });
-          setWeightedProgress(0, (i + 1) / sessions.length);
-          await sleep(260, signal);
-        }
-
+        setWeightedProgress(0, 1);
+        await sleep(180, signal);
         setPhase(1);
 
-        if (transcripts.length === 0) {
-          setWeightedProgress(1, 1);
-        }
+        const summaries: string[] = [];
 
-        for (let i = 0; i < transcripts.length; i += 1) {
-          const stream = layla.chat.completions.stream({
-            messages: [
-              { role: "system", content: config.summarySystem },
-              {
-                role: "user",
-                content: `${transcripts[i]}\n\n${config.summaryInstruction}`,
-              },
-            ],
-            signal,
-          });
-
+        for (let i = 0; i < windows.length; i += 1) {
           pushRow({
             kind: "system",
             tick: "SUMMARISE",
-            text: "Distilling session",
+            text: "Distilling message window",
             bold: `#${i + 1}`,
           });
 
-          await stream.finalContent();
+          const summary = await summarizeWindow(
+            layla,
+            config,
+            windows[i].rawText,
+            signal,
+          );
+          summaries.push(summary);
 
-          const memory = lore.memories[i % Math.max(1, lore.memories.length)];
-          if (memory) {
-            pushRow({ kind: "memory", tick: "MEMORY", text: memory });
+          if (summary) {
+            pushRow({
+              kind: "memory",
+              tick: "MEMORY",
+              text: summary.split("\n")[0] ?? summary,
+            });
           }
 
-          setWeightedProgress(1, (i + 1) / transcripts.length);
+          setWeightedProgress(1, (i + 1) / windows.length);
           await sleep(160, signal);
-        }
-
-        for (let i = transcripts.length; i < lore.memories.length; i += 1) {
-          pushRow({ kind: "memory", tick: "MEMORY", text: lore.memories[i] });
-          await sleep(420, signal);
         }
 
         setPhase(2);
 
-        await layla.chat.completions.create({
-          messages: [
-            { role: "system", content: config.graphSystem },
-            {
-              role: "user",
-              content: `${lore.memories.join("\n")}\n\n${config.graphInstruction}\n[[task:graph]]`,
-            },
-          ],
-          signal,
-        });
+        const memoryDrafts: Array<LaylaMemory & { graphTriples: GraphTriple[] }> =
+          [];
+        const allTriples: GraphTriple[] = [];
 
-        const placed = lore.entities.map((entity, index) =>
+        for (let i = 0; i < summaries.length; i += 1) {
+          pushRow({
+            kind: "system",
+            tick: "GRAPH",
+            text: "Extracting knowledge graph",
+            bold: `#${i + 1}`,
+          });
+
+          const graph = await generateKnowledgeGraph(
+            layla,
+            config,
+            summaries[i],
+            signal,
+          );
+
+          allTriples.push(...graph.triples);
+          memoryDrafts.push(
+            makeMemoryDraft(
+              character.id,
+              windows[i],
+              summaries[i],
+              graph.json,
+              graph.triples,
+            ),
+          );
+          setWeightedProgress(2, (i + 1) / Math.max(1, summaries.length) * 0.62);
+        }
+
+        const displayGraph = buildGraphDisplay(allTriples);
+        const visualEntities =
+          displayGraph.entities.length > 0 ? displayGraph.entities : lore.entities;
+        const visualRelations =
+          displayGraph.relations.length > 0 ? displayGraph.relations : lore.relations;
+        const placed = visualEntities.map((entity, index) =>
           placeNode(entity, index),
         );
         const nodesById = new Map(placed.map((node) => [node.id, node]));
 
         if (placed.length === 0) {
-          setWeightedProgress(2, 1);
+          setWeightedProgress(2, 0.8);
         }
 
         for (let i = 0; i < placed.length; i += 1) {
@@ -274,7 +317,7 @@ export function useIngestAnimation({
           setEdges(() => {
             const present = new Set(placed.slice(0, i + 1).map((n) => n.id));
 
-            return lore.relations
+            return visualRelations
               .filter(
                 (relation) =>
                   present.has(relation.from) && present.has(relation.to),
@@ -285,16 +328,31 @@ export function useIngestAnimation({
               }));
           });
 
-          setWeightedProgress(2, (i + 1) / placed.length);
+          setWeightedProgress(2, 0.62 + ((i + 1) / placed.length) * 0.24);
           await sleep(640, signal);
         }
 
+        const savedMemories =
+          memoryDrafts.length > 0
+            ? await layla.memories.createOrUpdate(
+                memoryDrafts.map(({ graphTriples: _graphTriples, ...memory }) => memory),
+                { signal },
+              )
+            : [];
+
+        setStats({
+          entities: displayGraph.entities.length,
+          memories: savedMemories.length,
+          relations: displayGraph.relations.length,
+        });
+        setWeightedProgress(2, 1);
         setPhase(3);
         setOverall(1);
         pushRow({
           kind: "system",
           tick: "COMMIT",
           text: "Knowledge graph written to memory",
+          bold: `${savedMemories.length} saved`,
         });
         await sleep(500, signal);
         setFinished(true);
@@ -340,6 +398,7 @@ export function useIngestAnimation({
     phase,
     phaseProg,
     rows,
+    stats,
     stageRef,
   };
 }
