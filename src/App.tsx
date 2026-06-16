@@ -27,7 +27,10 @@ export default function App() {
         <CharacterPicker
           characters={catalog.characters}
           error={catalog.error}
+          hasMore={catalog.hasMore}
           isLoading={catalog.isLoading}
+          isLoadingMore={catalog.isLoadingMore}
+          onLoadMore={catalog.loadNextPage}
           onPick={flow.openSettings}
           portraits={catalog.portraits}
         />

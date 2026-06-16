@@ -1,21 +1,43 @@
-import { LaylaAbortError, LaylaSDK, type LaylaCharacter } from "@layla-network/sdk";
+import {
+  LaylaAbortError,
+  LaylaSDK,
+  type LaylaCharacter,
+} from "@layla-network/sdk";
+
+export function hydrateCharacterImage(
+  character: LaylaCharacter,
+  imageSrc: string,
+): LaylaCharacter {
+  return {
+    ...character,
+    data: {
+      ...character.data,
+      data: {
+        ...character.data.data,
+        extensions: {
+          ...character.data.data.extensions,
+          image: imageSrc,
+        },
+      },
+    },
+  };
+}
 
 export async function resolvePortrait(
   layla: LaylaSDK,
   character: LaylaCharacter,
+  signal?: AbortSignal,
 ): Promise<string> {
   const embedded = character.data.data.extensions?.image;
 
-  if (typeof embedded === "string" && embedded.length > 0) {
-    return embedded;
+  try {
+    const src = await layla.characters.getImage(character.id, { signal });
+    if (src) return src;
+  } catch (error) {
+    if (error instanceof LaylaAbortError) return "";
   }
 
-  try {
-    const src = await layla.characters.getImage(character.id);
-    return src ?? "";
-  } catch {
-    return "";
-  }
+  return typeof embedded === "string" ? embedded : "";
 }
 
 export const sleep = (ms: number, signal?: AbortSignal) =>

@@ -173,6 +173,16 @@ body {
   display: block;
   background: var(--elevated);
 }
+.card .thumb-placeholder {
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+  font-size: 38px;
+  font-weight: 750;
+  background:
+    radial-gradient(90% 75% at 50% 20%, rgba(71, 166, 255, 0.22), transparent),
+    var(--elevated);
+}
 .card .thumb-wrap {
   position: relative;
 }
@@ -212,6 +222,22 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(6px);
   color: var(--text);
+}
+.pagination {
+  padding: 18px 0 4px;
+}
+.pagination .btn:disabled {
+  cursor: progress;
+  filter: brightness(0.82);
+}
+.pagination-note {
+  padding: 18px 4px 4px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.pagination-note.error {
+  color: var(--danger);
 }
 
 /* ---------- detail / config ---------- */
