@@ -1,0 +1,7 @@
+{
+  "title": "Layla Mini-App Template",
+  "tagline": "A template to create your own mini-app powered by Layla.",
+  "description": "This is a mini-app template built with React and Vite, designed to help you quickly create your own mini-app powered by the Layla SDK. It installs the Layla SDK and setups a mock in development mode, allowing you to start building and testing your mini-app right away.",
+  "iconUri": "icon.jpg",
+  "backgroundImgUri": "bg.jpg"
+}
