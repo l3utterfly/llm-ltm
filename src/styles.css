@@ -688,7 +688,7 @@ body {
 .log-row {
   display: flex;
   gap: 9px;
-  align-items: baseline;
+  align-items: flex-start;
   font-size: 12.5px;
   padding: 6px 8px;
   border-radius: 8px;
@@ -704,6 +704,7 @@ body {
 }
 .log-row .what {
   color: var(--text-2);
+  white-space: pre-wrap;
 }
 .log-row.memory .tick {
   color: var(--energy-b);

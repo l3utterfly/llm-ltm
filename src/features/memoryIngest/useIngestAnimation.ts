@@ -279,7 +279,7 @@ export function useIngestAnimation({
             pushRow({
               kind: "memory",
               tick: "MEMORY",
-              text: summary.split("\n")[0] ?? summary,
+              text: summary,
             });
           }
           pushRow({
