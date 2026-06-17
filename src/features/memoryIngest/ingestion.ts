@@ -5,11 +5,77 @@ import type {
   LaylaSDK,
 } from "@layla-network/sdk";
 import type { DemoEntity, DemoRelation, GraphNodeKind } from "../../demo/data";
+import {
+  defensiveJsonParser,
+  type JsonSchema,
+  type ParseResult,
+} from "../../libs/defensiveJsonParser";
 import type { IngestConfig } from "./types";
 
 const SESSION_PAGE_SIZE = 20;
 const HISTORY_PAGE_SIZE = 50;
 const WINDOW_SIZE = 3;
+const GRAPH_RELATION_SCHEMA: JsonSchema = {
+  type: "object",
+  properties: {
+    subject: { type: "string" },
+    relationship: { type: "string" },
+    object: { type: "string" },
+    from: { type: "string" },
+    source: { type: "string" },
+    to: { type: "string" },
+    target: { type: "string" },
+    relation: { type: "string" },
+    label: { type: "string" },
+  },
+  additionalProperties: true,
+};
+const GRAPH_TRIPLES_SCHEMA: JsonSchema = {
+  type: "array",
+  items: GRAPH_RELATION_SCHEMA,
+};
+const GRAPH_DISPLAY_SCHEMA: JsonSchema = {
+  type: "object",
+  properties: {
+    relations: {
+      type: "array",
+      items: GRAPH_RELATION_SCHEMA,
+    },
+    edges: {
+      type: "array",
+      items: GRAPH_RELATION_SCHEMA,
+    },
+    entities: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          label: { type: "string" },
+          name: { type: "string" },
+          kind: { type: "string" },
+          type: { type: "string" },
+        },
+        additionalProperties: true,
+      },
+    },
+    nodes: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          label: { type: "string" },
+          name: { type: "string" },
+          kind: { type: "string" },
+          type: { type: "string" },
+        },
+        additionalProperties: true,
+      },
+    },
+  },
+  additionalProperties: true,
+};
 
 export interface SessionTranscript {
   sessionId: string;
@@ -210,9 +276,9 @@ export async function generateKnowledgeGraph(
     signal,
   });
   const content = completion.choices[0]?.message.content.trim() ?? "";
-  const json = extractJsonString(content);
-  const triples = parseGraphTriples(json);
-  const display = parseGraphDisplay(json, triples);
+  const { json, parsed } = parseKnowledgeGraphResponse(content);
+  const triples = parseGraphTriples(parsed);
+  const display = parseGraphDisplay(parsed, triples);
 
   return { display, json, triples };
 }
@@ -278,29 +344,21 @@ export function buildGraphDisplay(triples: GraphTriple[]): GraphDisplayData {
   };
 }
 
-function parseGraphDisplay(
-  json: string,
-  triples: GraphTriple[],
-): GraphDisplayData {
-  try {
-    const parsed: unknown = JSON.parse(json);
-    const fallback = buildGraphDisplay(triples);
-    const parsedEntities = parseGraphEntities(parsed);
-    const parsedRelations = parseGraphRelations(parsed, triples, parsedEntities);
-    const relations =
-      parsedRelations.length > 0 ? parsedRelations : fallback.relations;
-    const entities = completeRelationEntities(
-      parsedEntities.length > 0 ? parsedEntities : fallback.entities,
-      relations,
-    );
+function parseGraphDisplay(parsed: unknown, triples: GraphTriple[]): GraphDisplayData {
+  const fallback = buildGraphDisplay(triples);
+  const parsedEntities = parseGraphEntities(parsed);
+  const parsedRelations = parseGraphRelations(parsed, triples, parsedEntities);
+  const relations =
+    parsedRelations.length > 0 ? parsedRelations : fallback.relations;
+  const entities = completeRelationEntities(
+    parsedEntities.length > 0 ? parsedEntities : fallback.entities,
+    relations,
+  );
 
-    return {
-      entities: entities.slice(0, 28),
-      relations: dedupeRelations(relations).slice(0, 40),
-    };
-  } catch {
-    return buildGraphDisplay(triples);
-  }
+  return {
+    entities: entities.slice(0, 28),
+    relations: dedupeRelations(relations).slice(0, 40),
+  };
 }
 
 function parseGraphEntities(parsed: unknown): DemoEntity[] {
@@ -405,63 +463,64 @@ function speakerName(
   return entry.name || entry.role;
 }
 
-function extractJsonString(content: string): string {
-  const trimmed = content.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim();
-  const candidate = fenced || trimmed;
+function parseKnowledgeGraphResponse(content: string): {
+  json: string;
+  parsed: unknown;
+} {
+  const results = [
+    defensiveJsonParser(content, GRAPH_TRIPLES_SCHEMA),
+    defensiveJsonParser(content, GRAPH_DISPLAY_SCHEMA),
+  ];
+  const best = results
+    .filter((result): result is ParseResult<unknown> & { data: unknown } =>
+      result.data !== null,
+    )
+    .sort((a, b) => scoreParsedGraph(b.data) - scoreParsedGraph(a.data))[0];
+  const parsed = best?.data ?? { raw: content };
 
-  try {
-    JSON.parse(candidate);
-    return candidate;
-  } catch {
-    const arrayStart = candidate.indexOf("[");
-    const arrayEnd = candidate.lastIndexOf("]");
-    if (arrayStart >= 0 && arrayEnd > arrayStart) {
-      const slice = candidate.slice(arrayStart, arrayEnd + 1);
-      try {
-        JSON.parse(slice);
-        return slice;
-      } catch {
-        return JSON.stringify({ raw: content });
-      }
-    }
-
-    return JSON.stringify({ raw: content });
-  }
+  return {
+    json: JSON.stringify(parsed),
+    parsed,
+  };
 }
 
-function parseGraphTriples(json: string): GraphTriple[] {
-  try {
-    const parsed: unknown = JSON.parse(json);
-    const relationSource = Array.isArray(parsed)
-      ? parsed
-      : isObject(parsed) && Array.isArray(parsed.relations)
-        ? parsed.relations
+function scoreParsedGraph(parsed: unknown): number {
+  return (
+    parseGraphTriples(parsed).length * 3 +
+    parseGraphEntities(parsed).length +
+    parseGraphRelations(parsed, [], []).length
+  );
+}
+
+function parseGraphTriples(parsed: unknown): GraphTriple[] {
+  const relationSource = Array.isArray(parsed)
+    ? parsed
+    : isObject(parsed) && Array.isArray(parsed.relations)
+      ? parsed.relations
+      : isObject(parsed) && Array.isArray(parsed.edges)
+        ? parsed.edges
         : [];
 
-    return relationSource.flatMap((item) => {
-      if (!isObject(item)) return [];
+  return relationSource.flatMap((item) => {
+    if (!isObject(item)) return [];
 
-      const subject =
-        stringField(item, "subject") ||
-        stringField(item, "from") ||
-        stringField(item, "source");
-      const relationship =
-        stringField(item, "relationship") ||
-        stringField(item, "relation") ||
-        stringField(item, "label");
-      const object =
-        stringField(item, "object") ||
-        stringField(item, "to") ||
-        stringField(item, "target");
+    const subject =
+      stringField(item, "subject") ||
+      stringField(item, "from") ||
+      stringField(item, "source");
+    const relationship =
+      stringField(item, "relationship") ||
+      stringField(item, "relation") ||
+      stringField(item, "label");
+    const object =
+      stringField(item, "object") ||
+      stringField(item, "to") ||
+      stringField(item, "target");
 
-      if (!subject || !relationship || !object) return [];
+    if (!subject || !relationship || !object) return [];
 
-      return [{ subject, relationship, object }];
-    });
-  } catch {
-    return [];
-  }
+    return [{ subject, relationship, object }];
+  });
 }
 
 function cleanLabel(value: string): string {
