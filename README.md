@@ -9,6 +9,16 @@ knowledge graph from those memories. Each saved memory keeps the original text,
 the generated summary, and the graph JSON so the character can recall earlier
 context and preserve relationships across long-running chats.
 
+## Screenshots
+
+| Choose a character | Configure ingest prompts |
+| --- | --- |
+| <img src="./assets/1.jpg" alt="Choose a character screen" width="420"> | <img src="./assets/2.jpg" alt="Configure ingest prompts screen" width="420"> |
+
+| Summarize chat history | Build the knowledge graph |
+| --- | --- |
+| <img src="./assets/3.jpg" alt="Memory ingest summarizing screen" width="420"> | <img src="./assets/4.jpg" alt="Memory ingest graphing screen" width="420"> |
+
 ## Features
 
 - Browse Layla characters with portraits, tags, and descriptions
