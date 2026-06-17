@@ -1,23 +1,55 @@
-# Layla Mini-App Template
+# LLM-based Long-term Memory
 
-A starter template for building Layla mini-apps with React, TypeScript, Vite, and the `@layla-network/sdk`.
+A Layla mini-app that processes character chat history with an LLM and writes
+the results back into Layla long-term memory.
 
-Layla mini-apps are client-side web apps that run inside the Layla app's WebView. In production, SDK calls go through the bridge injected by Layla and reach the on-device model. During local development, this template installs a mock Layla host so the app can run in a normal browser.
+The app reads a character's conversations, breaks new messages into overlapping
+windows, condenses each window into durable memories, and extracts a compact
+knowledge graph from those memories. Each saved memory keeps the original text,
+the generated summary, and the graph JSON so the character can recall earlier
+context and preserve relationships across long-running chats.
 
-## What's Included
+## Features
 
-- React 19 + TypeScript + Vite
-- `@layla-network/sdk` for chat completions, character cards, and character images
-- A development mock host installed in `src/main.tsx`
-- `vite-plugin-singlefile` so production builds emit a self-contained HTML bundle
-- Mini-app metadata in `src/assets/app.json`
+- Browse Layla characters with portraits, tags, and descriptions
+- Load characters in pages and fetch portraits through the Layla SDK
+- Keep per-character ingest settings in Layla's file storage
+- Customize the system prompt and instruction used for summarization
+- Customize the system prompt and instruction used for graph extraction
+- Skip already-processed history by using the latest saved memory timestamp
+- Read chat sessions and history through paginated SDK calls
+- Summarize overlapping transcript windows into long-term memory drafts
+- Extract graph triples for people, places, events, traits, and objects
+- Visualize ingest progress with reading, summarizing, and graphing phases
+- Save generated memories with `rawText`, `summary`, and `knowledgeGraphJSON`
+- Cancel an in-progress ingest run with abort-aware SDK calls
+- Run locally with a built-in demo Layla host and sample characters
 
-## Requirements
+## How It Works
+
+1. **Choose a character.** The app lists characters from Layla and hydrates each
+   card with its portrait when available.
+2. **Tune the ingest prompts.** Review or edit the summarization and graph
+   prompts for that specific character. Changes are saved to `config.json`
+   through Layla file storage.
+3. **Read new history.** The app checks the latest memory timestamp for the
+   character, then scans chat sessions for newer messages only.
+4. **Build transcript windows.** New chat messages are sorted by time and
+   grouped into small overlapping windows so nearby context stays together.
+5. **Summarize.** Each window is sent to Layla chat completions with the
+   configured summary prompt.
+6. **Graph.** Each summary is sent back to the model for JSON graph extraction.
+   The app defensively parses graph triples and visualizes the resulting nodes
+   and relationships.
+7. **Commit memories.** Generated memory drafts are saved with
+   `layla.memories.createOrUpdate`.
+
+## Running Locally
+
+### Requirements
 
 - Node.js 20 or newer
 - npm
-
-## Getting Started
 
 Install dependencies:
 
@@ -25,141 +57,155 @@ Install dependencies:
 npm install
 ```
 
-Start the local dev server:
+Start Vite:
 
 ```bash
 npm run dev
 ```
 
-Build the mini-app:
+During local development, `src/main.tsx` installs a demo Layla host from
+`src/demo/data.ts`. The mock host provides sample characters, portraits, chat
+history, memory storage, and canned LLM responses, so the app can be exercised
+in a normal browser without the Layla WebView.
+
+Preview a production build locally:
+
+```bash
+npm run build
+npm run preview
+```
+
+## Running in Layla
+
+In production, the app creates a `LaylaSDK` client and talks to the bridge
+provided by the Layla WebView. Character listing, character images, chat
+history, memory reads and writes, file storage, and model completions all go
+through `@layla-network/sdk`.
+
+No model endpoint or API key is embedded in the production bundle.
+
+Create the production bundle with:
 
 ```bash
 npm run build
 ```
 
-Preview the production build:
+The build is written to `dist/`. `vite-plugin-singlefile` bundles the app into a
+WebView-friendly static output, while Vite copies the mini-app metadata and
+artwork from `public/`.
 
-```bash
-npm run preview
-```
-
-Run linting:
-
-```bash
-npm run lint
-```
-
-## Project Structure
-
-```text
-.
-+-- public/
-|   +-- favicon.svg
-|   +-- icons.svg
-+-- src/
-|   +-- assets/
-|   |   +-- app.json
-|   |   +-- bg.jpg
-|   |   +-- hero.png
-|   |   +-- icon.jpg
-|   +-- App.css
-|   +-- App.tsx
-|   +-- index.css
-|   +-- main.tsx
-+-- index.html
-+-- package.json
-+-- vite.config.ts
-```
-
-## Mini-App Metadata
-
-Edit `src/assets/app.json` to customize how the mini-app appears in Layla:
+Layla listing metadata lives in `public/app.json`:
 
 ```json
 {
-  "title": "Layla Mini-App Template",
-  "tagline": "A template to create your own mini-app powered by Layla.",
-  "description": "This is a mini-app template built with React and Vite, designed to help you quickly create your own mini-app powered by the Layla SDK. It installs the Layla SDK and setups a mock in development mode, allowing you to start building and testing your mini-app right away.",
+  "title": "LLM-based Long-term Memory",
+  "tagline": "Uses LLM to process long-term memory instead of the built-in Layla models",
+  "description": "...",
   "iconUri": "icon.jpg",
   "backgroundImgUri": "bg.jpg"
 }
 ```
 
-The image paths are relative to `src/assets/`.
+## Memory Format
 
-## Using the Layla SDK
+Each generated memory is saved as a Layla memory draft with:
 
-Create one SDK client and reuse it:
+- `character_id`: the selected character
+- `rawText`: the transcript window used as source material
+- `timestamp`: the newest message timestamp in that window
+- `summary`: the generated long-term memory text
+- `knowledgeGraphJSON`: the parsed graph response serialized as JSON
 
-```ts
-import { LaylaSDK, LaylaError } from '@layla-network/sdk'
+The graph parser accepts either an array of triples or an object containing
+`relations`, `edges`, `entities`, or `nodes`. Relation fields can use common
+aliases such as `subject`/`object`, `from`/`to`, `source`/`target`, and
+`relationship`/`relation`/`label`.
 
-const layla = new LaylaSDK()
-```
+## Per-Character Settings
 
-Stream chat responses by default so users can see the on-device model respond token by token:
+Prompt settings are stored in `config.json` through `layla.utils.saveFile`.
+The file has versioned per-character entries:
 
-```ts
-const stream = layla.chat.completions.stream({
-  messages: [{ role: 'user', content: 'Write a short greeting.' }],
-})
-
-stream.on('content', (_delta, snapshot) => {
-  console.log(snapshot)
-})
-
-try {
-  const finalText = await stream.finalContent()
-  console.log(finalText)
-} catch (error) {
-  if (error instanceof LaylaError) {
-    console.error(error.message)
-  } else {
-    throw error
+```json
+{
+  "version": 1,
+  "characters": {
+    "character-id": {
+      "summarySystem": "...",
+      "summaryInstruction": "...",
+      "graphSystem": "...",
+      "graphInstruction": "..."
+    }
   }
 }
 ```
 
-Wire a stop button to `stream.abort()` for any interactive generation UI.
+If the file is missing or a setting is invalid, the app falls back to the
+defaults in `src/features/memoryIngest/config.ts`.
 
-## Local Development Mock
+## Project Structure
 
-The SDK bridge only exists inside the Layla WebView. In a normal browser, SDK calls need a mock host.
-
-This template installs the mock in `src/main.tsx` during Vite development:
-
-```ts
-import { installLaylaMock } from '@layla-network/sdk'
-
-if (import.meta.env.DEV) {
-  installLaylaMock({
-    respond: (messages) =>
-      `You said: ${messages.at(-1)?.content}. Mock response from Layla.`,
-    latencyMs: 1000,
-    tokenDelayMs: 300,
-  })
-}
+```text
+.
++-- assets/                         # README and store artwork assets
++-- public/
+|   +-- app.json                    # Layla mini-app metadata
+|   +-- bg.jpg                      # Listing background
+|   +-- icon.jpg                    # Listing icon
++-- src/
+|   +-- demo/
+|   |   +-- data.ts                 # Development Layla mock host
+|   |   +-- portraits.ts            # Generated demo portraits
+|   +-- features/
+|   |   +-- memoryIngest/
+|   |       +-- components/         # Shared feature UI
+|   |       +-- screens/            # Picker, settings, and ingest screens
+|   |       +-- config.ts           # Default prompts and display helpers
+|   |       +-- configFile.ts       # Layla config.json persistence
+|   |       +-- ingestion.ts        # Transcript, summary, graph, memory logic
+|   |       +-- layla.ts            # Layla helper utilities
+|   |       +-- types.ts
+|   |       +-- useCharacterCatalog.ts
+|   |       +-- useIngestAnimation.ts
+|   |       +-- useIngestFlow.ts
+|   +-- libs/
+|   |   +-- defensiveJsonParser.ts
+|   +-- App.tsx                     # Top-level screen routing
+|   +-- main.tsx                    # App bootstrap and development mock
+|   +-- styles.css
++-- package.json
++-- vite.config.ts
 ```
 
-Keep this guarded by `import.meta.env.DEV` so the mock is not used in the production bundle.
+## Scripts
 
-## Building for Layla
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Start the local Vite server |
+| `npm run build` | Type-check and create the production build |
+| `npm run preview` | Preview the production build locally |
+| `npm run lint` | Run ESLint |
 
-Production output is generated with:
+## Tech Stack
 
-```bash
-npm run build
-```
+- React 19
+- TypeScript
+- Vite
+- `@layla-network/sdk`
+- `vite-plugin-singlefile`
 
-The Vite config includes `vite-plugin-singlefile`, which helps produce WebView-friendly static output in `dist/`. The exact packaging or loading path depends on how the Layla host app consumes mini-app builds.
+## Layla App
 
-## Customizing the Template
+Visit the official Layla website: https://www.layla-network.ai/
 
-Start with these files:
+Download the Layla app:
 
-- `src/App.tsx` for the app UI and interactions
-- `src/App.css` and `src/index.css` for styling
-- `src/assets/app.json` for title, tagline, description, and app artwork
-- `src/main.tsx` for app bootstrapping and development-only mock setup
-
-Mini-apps run fully client-side. Do not add API keys, backend calls, or server-only code for model access; use `@layla-network/sdk` and let Layla provide the on-device bridge.
+<p>
+  <a href="https://play.google.com/store/apps/details?id=com.layla">
+    <img src="./assets/google_badge.png" alt="Get it on Google Play" height="60">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://apps.apple.com/us/app/layla/id6456886656">
+    <img src="./assets/apple_badge.png" alt="Download on the App Store" height="60">
+  </a>
+</p>
