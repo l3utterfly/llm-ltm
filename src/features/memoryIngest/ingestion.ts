@@ -457,8 +457,8 @@ function speakerName(
   entry: LaylaChatHistoryEntry,
   characterName: string,
 ): string {
-  if (entry.role === "assistant") return characterName;
-  if (entry.role === "user") return "user";
+  if (entry.role === "assistant") return entry.name || characterName;
+  if (entry.role === "user") return entry.name || 'user';
 
   return entry.name || entry.role;
 }

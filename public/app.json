@@ -1,7 +1,7 @@
 {
-  "title": "Layla Mini-App Template",
-  "tagline": "A template to create your own mini-app powered by Layla.",
-  "description": "This is a mini-app template built with React and Vite, designed to help you quickly create your own mini-app powered by the Layla SDK. It installs the Layla SDK and setups a mock in development mode, allowing you to start building and testing your mini-app right away.",
+  "title": "LLM-based Long-term Memory",
+  "tagline": "Uses LLM to process long-term memory instead of the built-in Layla models",
+  "description": "This mini-app reads through a character's conversation history, slides over it in overlapping windows, and condenses each window into compact memories. It then links those memories into a knowledge graph—connecting people, places, events, and relationships—so the character can recall earlier context, see how details relate, and stay consistent across long-running chats.",
   "iconUri": "icon.jpg",
   "backgroundImgUri": "bg.jpg"
 }
