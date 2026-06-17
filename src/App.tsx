@@ -9,7 +9,7 @@ import { useIngestFlow } from "./features/memoryIngest/useIngestFlow";
 export default function App() {
   const layla = useMemo(() => new LaylaSDK(), []);
   const catalog = useCharacterCatalog(layla);
-  const flow = useIngestFlow();
+  const flow = useIngestFlow(layla);
   const selected = flow.selectedCharacter;
   const portrait = selected ? (catalog.portraits[selected.id] ?? "") : "";
 
@@ -32,6 +32,8 @@ export default function App() {
         <CharacterSettings
           character={selected}
           config={flow.config}
+          configError={flow.configError}
+          configSaveState={flow.configSaveState}
           onBack={flow.backToPicker}
           onStart={flow.startIngesting}
           portrait={portrait}

@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@layla-network/sdk": "^0.1.14",
+    "@layla-network/sdk": "^0.1.15",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "vite-plugin-singlefile": "^2.3.3"

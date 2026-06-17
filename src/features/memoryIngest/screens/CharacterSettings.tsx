@@ -1,11 +1,14 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { LaylaCharacter } from "@layla-network/sdk";
 import type { IngestConfig } from "../types";
+import type { ConfigSaveState } from "../useIngestFlow";
 import { Field } from "../components/Field";
 
 interface CharacterSettingsProps {
   character: LaylaCharacter;
   config: IngestConfig;
+  configError: string | null;
+  configSaveState: ConfigSaveState;
   onBack: () => void;
   onStart: () => void;
   portrait: string;
@@ -15,6 +18,8 @@ interface CharacterSettingsProps {
 export function CharacterSettings({
   character,
   config,
+  configError,
+  configSaveState,
   onBack,
   onStart,
   portrait,
@@ -22,6 +27,17 @@ export function CharacterSettings({
 }: CharacterSettingsProps) {
   const data = character.data.data;
   const tagline = String(data.extensions?.tagline ?? data.personality ?? "");
+  const isLoadingConfig = configSaveState === "loading";
+  const statusText =
+    configSaveState === "loading"
+      ? "Loading saved settings"
+      : configSaveState === "saving"
+        ? "Saving settings"
+        : configSaveState === "saved"
+          ? "Settings saved"
+          : configSaveState === "error"
+            ? "Settings not saved"
+            : "Per-character settings";
   const setConfigValue = (key: keyof IngestConfig) => (value: string) =>
     setConfig((current) => ({ ...current, [key]: value }));
 
@@ -55,8 +71,11 @@ export function CharacterSettings({
       <div className="section-label">
         <span className="dot" />
         <span className="txt">How memories are processed</span>
-        <span className="hint">4 settings</span>
+        <span className={`hint config-state ${configSaveState}`}>
+          {statusText}
+        </span>
       </div>
+      {configError && <div className="config-error">{configError}</div>}
 
       <div className="config-card">
         <header>
@@ -67,12 +86,14 @@ export function CharacterSettings({
           </div>
         </header>
         <Field
+          disabled={isLoadingConfig}
           label="System prompt"
           onChange={setConfigValue("summarySystem")}
           rows={3}
           value={config.summarySystem}
         />
         <Field
+          disabled={isLoadingConfig}
           label="Custom instruction"
           onChange={setConfigValue("summaryInstruction")}
           rows={2}
@@ -89,12 +110,14 @@ export function CharacterSettings({
           </div>
         </header>
         <Field
+          disabled={isLoadingConfig}
           label="System prompt"
           onChange={setConfigValue("graphSystem")}
           rows={3}
           value={config.graphSystem}
         />
         <Field
+          disabled={isLoadingConfig}
           label="Custom instruction"
           onChange={setConfigValue("graphInstruction")}
           rows={2}
@@ -103,7 +126,11 @@ export function CharacterSettings({
       </div>
 
       <div className="cta-bar">
-        <button className="btn btn-primary" onClick={onStart}>
+        <button
+          className="btn btn-primary"
+          disabled={isLoadingConfig}
+          onClick={onStart}
+        >
           {"✨"} Start ingesting memories
         </button>
       </div>
