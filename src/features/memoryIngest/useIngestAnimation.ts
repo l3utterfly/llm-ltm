@@ -11,10 +11,10 @@ import {
   buildTranscriptWindows,
   generateKnowledgeGraph,
   getLatestMemoryTimestamp,
+  type IngestedMemoryDraft,
   loadNewTranscripts,
   makeMemoryDraft,
   summarizeWindow,
-  type GraphTriple,
 } from "./ingestion";
 import { sleep } from "./layla";
 import type {
@@ -31,6 +31,17 @@ interface UseIngestAnimationArgs {
   character: LaylaCharacter;
   config: IngestConfig;
   layla: LaylaSDK;
+}
+
+function memoryPayload(memory: IngestedMemoryDraft): LaylaMemory {
+  return {
+    id: memory.id,
+    character_id: memory.character_id,
+    rawText: memory.rawText,
+    timestamp: memory.timestamp,
+    summary: memory.summary,
+    knowledgeGraphJSON: memory.knowledgeGraphJSON,
+  };
 }
 
 export function useIngestAnimation({
@@ -221,7 +232,7 @@ export function useIngestAnimation({
         await sleep(180, signal);
         setPhase(1);
 
-        const summaries: string[] = [];
+        const memoryDrafts: IngestedMemoryDraft[] = [];
 
         for (let i = 0; i < windows.length; i += 1) {
           pushRow({
@@ -237,7 +248,32 @@ export function useIngestAnimation({
             windows[i].rawText,
             signal,
           );
-          summaries.push(summary);
+
+          const draft = makeMemoryDraft(
+            character.id,
+            windows[i],
+            summary,
+            null,
+            [],
+          );
+          const [savedMemory] = await layla.memories.createOrUpdate(
+            [memoryPayload(draft)],
+            { signal },
+          );
+
+          if (!savedMemory) {
+            throw new Error("Layla did not return the saved memory.");
+          }
+
+          memoryDrafts.push({
+            ...draft,
+            ...savedMemory,
+            graphTriples: [],
+          });
+          setStats((current) => ({
+            ...current,
+            memories: memoryDrafts.length,
+          }));
 
           if (summary) {
             pushRow({
@@ -246,6 +282,12 @@ export function useIngestAnimation({
               text: summary.split("\n")[0] ?? summary,
             });
           }
+          pushRow({
+            kind: "system",
+            tick: "SAVE",
+            text: "Summary saved to memory",
+            bold: `#${i + 1}`,
+          });
 
           setWeightedProgress(1, (i + 1) / windows.length);
           await sleep(160, signal);
@@ -253,13 +295,11 @@ export function useIngestAnimation({
 
         setPhase(2);
 
-        const memoryDrafts: Array<LaylaMemory & { graphTriples: GraphTriple[] }> =
-          [];
         const entitiesById = new Map<string, DemoEntity>();
         const relationsByKey = new Map<string, DemoRelation>();
         const placedById = new Map<string, PlacedNode>();
         const graphProgress = (graphIndex: number, withinGraph: number) =>
-          (graphIndex + withinGraph) / Math.max(1, summaries.length);
+          (graphIndex + withinGraph) / Math.max(1, memoryDrafts.length);
 
         const revealGraph = async (
           graphEntities: DemoEntity[],
@@ -329,7 +369,7 @@ export function useIngestAnimation({
           }
         };
 
-        for (let i = 0; i < summaries.length; i += 1) {
+        for (let i = 0; i < memoryDrafts.length; i += 1) {
           pushRow({
             kind: "system",
             tick: "GRAPH",
@@ -340,44 +380,50 @@ export function useIngestAnimation({
           const graph = await generateKnowledgeGraph(
             layla,
             config,
-            summaries[i],
+            memoryDrafts[i].summary ?? "",
             signal,
           );
 
-          memoryDrafts.push(
-            makeMemoryDraft(
-              character.id,
-              windows[i],
-              summaries[i],
-              graph.json,
-              graph.triples,
-            ),
+          const graphedMemory = {
+            ...memoryDrafts[i],
+            knowledgeGraphJSON: graph.json,
+            graphTriples: graph.triples,
+          };
+          const [savedMemory] = await layla.memories.createOrUpdate(
+            [memoryPayload(graphedMemory)],
+            { signal },
           );
+
+          if (!savedMemory) {
+            throw new Error("Layla did not return the updated memory.");
+          }
+
+          memoryDrafts[i] = {
+            ...graphedMemory,
+            ...savedMemory,
+            graphTriples: graph.triples,
+          };
           setWeightedProgress(
             2,
             graphProgress(i, 0.62),
           );
+          pushRow({
+            kind: "system",
+            tick: "SAVE",
+            text: "Knowledge graph saved to memory",
+            bold: `#${i + 1}`,
+          });
           await revealGraph(graph.display.entities, graph.display.relations, i);
+          setStats({
+            entities: entitiesById.size,
+            memories: memoryDrafts.length,
+            relations: relationsByKey.size,
+          });
         }
-
-        const savedMemories =
-          memoryDrafts.length > 0
-            ? await layla.memories.createOrUpdate(
-                memoryDrafts.map((memory) => ({
-                  id: memory.id,
-                  character_id: memory.character_id,
-                  rawText: memory.rawText,
-                  timestamp: memory.timestamp,
-                  summary: memory.summary,
-                  knowledgeGraphJSON: memory.knowledgeGraphJSON,
-                })),
-                { signal },
-              )
-            : [];
 
         setStats({
           entities: entitiesById.size,
-          memories: savedMemories.length,
+          memories: memoryDrafts.length,
           relations: relationsByKey.size,
         });
         setWeightedProgress(2, 1);
@@ -387,7 +433,7 @@ export function useIngestAnimation({
           kind: "system",
           tick: "COMMIT",
           text: "Knowledge graph written to memory",
-          bold: `${savedMemories.length} saved`,
+          bold: `${memoryDrafts.length} saved`,
         });
         await sleep(500, signal);
         setFinished(true);

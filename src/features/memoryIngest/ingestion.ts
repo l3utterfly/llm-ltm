@@ -287,7 +287,7 @@ export function makeMemoryDraft(
   characterId: string,
   window: TranscriptWindow,
   summary: string,
-  graphJson: string,
+  graphJson: string | null,
   graphTriples: GraphTriple[],
 ): IngestedMemoryDraft {
   return {
