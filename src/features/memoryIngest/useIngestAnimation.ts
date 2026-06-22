@@ -41,6 +41,7 @@ function memoryPayload(memory: IngestedMemoryDraft): LaylaMemory {
     timestamp: memory.timestamp,
     summary: memory.summary,
     knowledgeGraphJSON: memory.knowledgeGraphJSON,
+    session_id: memory.session_id,
   };
 }
 
@@ -251,6 +252,7 @@ export function useIngestAnimation({
 
           const draft = makeMemoryDraft(
             character.id,
+            windows[i].sessionId,
             windows[i],
             summary,
             null,

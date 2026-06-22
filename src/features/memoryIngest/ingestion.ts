@@ -85,6 +85,7 @@ export interface SessionTranscript {
 export interface TranscriptWindow {
   rawText: string;
   timestamp: number;
+  sessionId: string;
 }
 
 export interface GraphTriple {
@@ -230,11 +231,11 @@ export function buildTranscriptWindows(
 
     if (messages.length === 0) return [];
     if (windowCount === 0) {
-      return [formatWindow(messages, character)];
+      return [formatWindow(messages, character, transcript.sessionId)];
     }
 
     return Array.from({ length: windowCount }, (_, index) =>
-      formatWindow(messages.slice(index, index + WINDOW_SIZE), character),
+      formatWindow(messages.slice(index, index + WINDOW_SIZE), character, transcript.sessionId),
     );
   });
 }
@@ -285,6 +286,7 @@ export async function generateKnowledgeGraph(
 
 export function makeMemoryDraft(
   characterId: string,
+  sessionId: string,
   window: TranscriptWindow,
   summary: string,
   graphJson: string | null,
@@ -293,6 +295,7 @@ export function makeMemoryDraft(
   return {
     id: 0,
     character_id: characterId,
+    session_id: sessionId,
     rawText: window.rawText,
     timestamp: window.timestamp,
     summary,
@@ -443,6 +446,7 @@ function parseGraphRelations(
 function formatWindow(
   entries: LaylaChatHistoryEntry[],
   character: LaylaCharacter,
+  sessionId: string,
 ): TranscriptWindow {
   const characterName = character.data.data.name;
   const rawText = entries
@@ -450,7 +454,7 @@ function formatWindow(
     .join("\n");
   const timestamp = Math.max(...entries.map((entry) => entry.timestamp));
 
-  return { rawText, timestamp };
+  return { rawText, timestamp, sessionId };
 }
 
 function speakerName(
